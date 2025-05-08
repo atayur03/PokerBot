@@ -1,6 +1,8 @@
-import unittest
-from treys import Card
 from hand_evaluator import evaluate, simulate_equity
+from treys import Card
+import unittest
+# import sys
+# sys.path.append('../src')
 
 
 class TestEvaluateFunction(unittest.TestCase):
@@ -41,6 +43,27 @@ class TestEquityFunction(unittest.TestCase):
         equity = simulate_equity(["Ah", "Ad"], ["Kc", "Ks"], [
                                  "2h", "3d", "5s", "9c", "Th"])
         self.assertEqual(equity, 1.0)
+
+    def test_turn_equity(self):
+        # On turn: Ah Ad vs Kc Ks with board 2h 3d 5s 9c
+        equity, win_rate, tie_rate = simulate_equity(
+            ["Ah", "Ad"], ["Kc", "Ks"], ["2h", "3d", "5s", "9c"])
+        self.assertGreater(equity, 0.95)
+        self.assertLess(equity, 0.96)
+
+    def test_flop_equity(self):
+        # On flop: Ah Ad vs Kc Ks with board 2h 3d 5s
+        equity, win_rate, tie_rate = simulate_equity(
+            ["Ah", "Ad"], ["Kc", "Ks"], ["2h", "3d", "5s"])
+        self.assertGreater(equity, 0.9)
+        self.assertLess(equity, 0.91)
+
+    def test_preflop_equity(self):
+        # On flop: Ah Ad vs Kc Ks with board 2h 3d 5s
+        equity, win_rate, tie_rate = simulate_equity(
+            ["Ah", "Ad"], ["Kc", "Ks"], [])
+        self.assertGreater(equity, 0.81)
+        self.assertLess(equity, 0.82)
 
 
 if __name__ == '__main__':

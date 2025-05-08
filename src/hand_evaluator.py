@@ -71,6 +71,16 @@ def simulate_equity(h1, h2, board):
             elif hero_score == villain_score:
                 ties += 1
             total += 1
+    elif len(board) == 0:
+        for flop1, flop2, flop3, turn, river in combinations(deck.cards, 5):
+            community = board + [flop1, flop2, flop3, turn, river]
+            hero_score = evaluator.evaluate(hero_hand, community)
+            villain_score = evaluator.evaluate(villain_hand, community)
+            if hero_score < villain_score:
+                wins += 1
+            elif hero_score == villain_score:
+                ties += 1
+            total += 1
     else:
         raise Exception("Board of wrong size")
     return ((wins + ties/2) / total, wins/total, ties/total)
