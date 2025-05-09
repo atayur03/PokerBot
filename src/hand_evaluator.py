@@ -1,4 +1,4 @@
-import treys
+import treys # type: ignore
 from itertools import combinations
 
 

@@ -73,8 +73,9 @@ if STRATEGY == 1:
     USERNAME = "calling_station"
     PASSWORD = "calling_station"
 elif STRATEGY == 2:
-    USERNAME = "dumb_equity"
-    PASSWORD = "dumb_equity"
+    USERNAME = "cfr"
+    PASSWORD = "cfr"
+    #player = CFRPlayer()
 
 NUM_STREETS = 4
 SMALL_BLIND = 50
@@ -321,18 +322,6 @@ def ComputeStrategy(hole_cards, board, action, strategy=STRATEGY):
         else:  # opponent has bet, so simply call
             incr = "c"
     elif strategy == 2:
-        equity = calculate_equity(hole_cards, board, n=5000)
-        if a["last_bettor"] == -1:
-            if equity >= 0.5:
-                incr = "b1000"
-            else:
-                incr = "k"
-        else:
-            if equity >= 0.5:
-                incr = "c"
-            else:
-                incr = "f"
-    elif strategy == 3:
         incr = player.get_action(
             card_str,
             community_cards,
@@ -343,23 +332,6 @@ def ComputeStrategy(hole_cards, board, action, strategy=STRATEGY):
             isDealer,
             checkAllowed,
         )
-
-    elif strategy == 4:
-        # ck/kk/kb100c/kb100b400
-        # convert this to a infoset, use the environment
-        incr = player.get_action(
-            history,
-            card_str,
-            community_cards,
-            highest_current_bet,
-            stage_pot_balance,
-            total_pot_balance,
-            player_balance,
-            BIG_BLIND,
-            isDealer,
-            checkAllowed,
-        )
-
     return incr
 
 
