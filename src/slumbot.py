@@ -1,4 +1,4 @@
-from player import random_player
+from player import random_player, base_equity_player
 import requests
 import numpy as np
 import sys
@@ -15,11 +15,11 @@ Strategy options:
 1) all-in
 2) check-call
 3) random
-4) bet_equity
+4) base_equity_player
 5) 
 ) cfr
 """
-STRATEGY = 'random'  # SET THE STRATEGY HERE
+STRATEGY = 'base_equity'  # SET THE STRATEGY HERE
 
 player = None
 USERNAME = "cs4701_project"
@@ -275,7 +275,8 @@ def ComputeStrategy(hole_cards, board, action, strategy=STRATEGY):
         incr = random_player(player_balance, total_pot_balance,
                              highest_current_bet, isDealer, checkAllowed)
     elif strategy == 'base_equity':  #
-        pass
+        incr = base_equity_player(card_str, community_cards, player_balance, total_pot_balance,
+                                  checkAllowed, highest_current_bet)
     elif strategy == 'cfr':
         incr = player.get_action(
             card_str,
@@ -424,7 +425,7 @@ def main():
     else:
         token = None
 
-    num_hands = 10
+    num_hands = 1000
     winnings_history = []
     winnings = winnings_history[-1] if len(winnings_history) > 0 else 0
 
