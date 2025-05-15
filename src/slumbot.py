@@ -1,56 +1,9 @@
-"""
-Slumbot is the only high-level poker AI currently available. We can use it
-to benchmark the performance of our bot. It is available here: https://www.slumbot.com/
-
-Slumbot provides an API interface, an 
-
-"""
-
-# The API utilizes HTTP POST requests.  Requests and responses have a JSON body.
-# There are two endpoints:
-#   /api/new_hand
-#   /api/act
-# To initiate a new hand, send a request to /api/new_hand.  To take an action, send a
-# request to /api/act.
-#
-# The body of a sample request to /api/new_hand:
-#   {"token": "a2f42f44-7ff6-40dd-906b-4c2f03fcee57"}
-# The body of a sample request to /api/act:
-#   {"token": "a2f42f44-7ff6-40dd-906b-4c2f03fcee57", "incr": "c"}
-#
-# A sample response from /api/new_hand or /api/act:
-#   {'old_action': '', 'action': 'b200', 'client_pos': 0, 'hole_cards': ['Ac', '9d'], 'board': [], 'token': 'a2f42f44-7ff6-40dd-906b-4c2f03fcee57'}
-#
-# Note that if the bot is first to act, then the response to /api/new_hand will contain the
-# bot's initial action.
-#
-# A token should be passed into every request.  With the exception that on the initial request to
-# /api/new_hand, the token may be missing.  But all subsequent requests should contain a token.
-# The token can in theory change over the course of a session (usually only if there is a long
-# pause) so always check if there is a new token in a response and use it going forward.
-#
-# Sample action that you might get in a response looks like this:
-#   b200c/kk/kk/kb200
-# An all-in can contain streets with no action.  For example:
-#   b20000c///
-#
-# Slumbot plays with blinds of 50 and 100 and a stack size of 200 BB (20,000 chips).  The stacks
-# reset after each hand.
-"""
-Actions Explained:
-"k" = check
-"c" = call
-"bX" = bet X amount, ex: "b200" = bet 200
-
-The / represents the transition between each game stage, i.e. pre-flop/flop/turn/river.
-Example of a game sequence that reaches showdown: cb300c/kk/kb300c/kb1200c
-"""
-import numpy as np
+from player import random_player
 import requests
+import numpy as np
 import sys
 import argparse
 import os
-import joblib
 from tqdm import tqdm
 
 sys.path.append("../src")
@@ -58,24 +11,20 @@ sys.path.append("../src")
 host = "slumbot.com"
 
 """
-Here are the strategies that we want to test out. Since Poker is high variance, we need to run each of these for a long time:
-- (Strategy 0) Always check or call
-- (Strategy 1) Only play the hands where you have over 50% chance of winning using my `calculate_equity` function
-- (Strategy 2) Use the CFR algorithm
+Strategy options:
+1) all-in
+2) check-call
+3) random
+4) bet_equity
+5) 
+) cfr
 """
-STRATEGY = 0  # SET THE STRATEGY HERE
+STRATEGY = 'random'  # SET THE STRATEGY HERE
 
 player = None
-if STRATEGY == 0:
-    USERNAME = "all-in"
-    PASSWORD = "all-in"
-if STRATEGY == 1:
-    USERNAME = "calling_station"
-    PASSWORD = "calling_station"
-elif STRATEGY == 2:
-    USERNAME = "cfr"
-    PASSWORD = "cfr"
-    #player = CFRPlayer()
+USERNAME = "cs4701_project"
+PASSWORD = "password"
+
 
 NUM_STREETS = 4
 SMALL_BLIND = 50
@@ -251,7 +200,8 @@ def NewHand(token):
     # Use verify=false to avoid SSL Error
     # If porting this code to another language, make sure that the Content-Type header is
     # set to application/json.
-    response = requests.post(f"https://{host}/api/new_hand", headers={}, json=data)
+    response = requests.post(
+        f"https://{host}/api/new_hand", headers={}, json=data)
     success = getattr(response, "status_code") == 200
     if not success:
         print("Status code: %s" % repr(response.status_code))
@@ -314,14 +264,19 @@ def ComputeStrategy(hole_cards, board, action, strategy=STRATEGY):
     history = convert_action_to_history(hole_cards, board, action, isDealer)
     print(history)
 
-    if strategy == 0:  # all-in
+    if strategy == 'all-in':  # all-in
         incr = "b20000"
-    elif strategy == 1:  # always check or call
+    elif strategy == 'check-call':  # always check or call
         if a["last_bettor"] == -1:  # no one has bet yet
             incr = "k"
         else:  # opponent has bet, so simply call
             incr = "c"
-    elif strategy == 2:
+    elif strategy == 'random':  # randomized action
+        incr = random_player(player_balance, total_pot_balance,
+                             highest_current_bet, isDealer, checkAllowed)
+    elif strategy == 'base_equity':  #
+        pass
+    elif strategy == 'cfr':
         incr = player.get_action(
             card_str,
             community_cards,
@@ -407,7 +362,7 @@ def PlayHand(token, debug=False):
         # Need to check or call
         a = ParseAction(
             action
-        )  # Ex: {'st': 0, 'pos': 1, 'street_last_bet_to': 100, 'total_last_bet_to': 100, 'last_bet_size': 50, 'last_bettor': 0}
+        )
         if "error" in a:
             print("Error parsing action %s: %s" % (action, a["error"]))
             print(a)
@@ -469,34 +424,18 @@ def main():
     else:
         token = None
 
-    # To avoid SSLError:
-    #   import urllib3
-    #   urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    num_hands = 100
+    num_hands = 10
     winnings_history = []
-    baseline_winnings_history = []
-    # winnings_history = joblib.load(f"../results/slumbot_strategy_{STRATEGY}_{USERNAME}_raw.joblib")
-    # baseline_winnings_history = joblib.load(
-    #     f"../results/slumbot_strategy_{STRATEGY}_{USERNAME}_baseline.joblib"
-    # )
     winnings = winnings_history[-1] if len(winnings_history) > 0 else 0
-    baseline_winnings = baseline_winnings_history[-1] if len(baseline_winnings_history) > 0 else 0
 
     for h in tqdm(range(num_hands)):
         (token, hand_winnings, baseline_hand_winnings) = PlayHand(token)
         winnings += hand_winnings
-        baseline_winnings += baseline_hand_winnings
         winnings_history.append(winnings)
-        baseline_winnings_history.append(baseline_winnings)
-        if (h + 1) % 1000 == 0:
-            joblib.dump(
-                winnings_history, f"../results/slumbot_strategy_{STRATEGY}_{USERNAME}_raw.joblib"
-            )
-            joblib.dump(
-                baseline_winnings_history,
-                f"../results/slumbot_strategy_{STRATEGY}_{USERNAME}_baseline.joblib",
-            )
-            #     print(history)
+
+    if num_hands >= 10000:
+        # save to csv
+        pass
 
     print("Total winnings: %i" % winnings)
 
