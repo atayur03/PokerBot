@@ -1,6 +1,6 @@
 from tqdm import tqdm # type: ignore
 import numpy as np # type: ignore
-from hand_evaluator import evaluate
+from hand_evaluator import evaluate, simulate_equity
 import treys # type: ignore
 import copy
 import joblib # type: ignore
@@ -14,7 +14,7 @@ import argparse
 4) Bet/Raise Pot        'r'
 5) Bet/Raise All In     'a' 
 """
-NUM_ACTIONS = 5
+NUM_ACTIONS = 3
 nodeMap = {} # map from infoSet to node
 startIterations = 0
 all_history = [] # list of all hand histories
@@ -22,7 +22,7 @@ all_history = [] # list of all hand histories
 class History:
     # SB bet size = 1, BB bet size = 2
     def __init__(self):
-        self.total_pot_size = 0
+        self.total_pot_size = 300
         self.history_str = ""
         self.min_bet_size = 200
         self.starting_stack = 20000
@@ -75,25 +75,30 @@ class Node:
 
 
 def check_base_case(player, all_community, player_cards, shown_community, history, p0, p1):
-    #previous action was a fold
+    #all chips in
+    win = simulate_equity(player_cards[player], player_cards[1-player], [str(x) for x in all_community])
     if history.total_pot_size >= 2 * history.starting_stack:
         all_history.append(
             {
                 "history": history.history_str,
-                "player_cards": player_cards[0],
-                "opponent_cards": player_cards[1],
+                "player_cards": player_cards[player],
+                "opponent_cards": player_cards[1-player],
                 "community_cards": [str(x) for x in all_community],
-            }
+                "pot_size": history.total_pot_size,
+                "win": win * (-2 * player + 1)
+            } 
         )
-        return history.total_pot_size
-
+        return history.total_pot_size * win
+    # fold
     if history.history_str[-1] == "f":  
         all_history.append(
             {
                 "history": history.history_str,
-                "player_cards": player_cards[0],
-                "opponent_cards": player_cards[1],
+                "player_cards": player_cards[player],
+                "opponent_cards": player_cards[1-player],
                 "community_cards": [str(x) for x in all_community],
+                "pot_size": history.total_pot_size,
+                "win": -2 * player + 1
             }
         )
         return history.total_pot_size
@@ -102,9 +107,11 @@ def check_base_case(player, all_community, player_cards, shown_community, histor
         all_history.append(
             {
                 "history": history.history_str,
-                "player_cards": player_cards[0],
-                "opponent_cards": player_cards[1],
+                "player_cards": player_cards[player],
+                "opponent_cards": player_cards[1-player],
                 "community_cards": [str(x) for x in all_community],
+                "pot_size": history.total_pot_size,
+                "win": win * (-2 * player + 1)
             }
         )
         hero_hand = [treys.Card.new(x) for x in player_cards[player]]
@@ -175,15 +182,20 @@ def cfr(all_community, player_cards, shown_community, history, p0, p1):
             nextHistory.history_str += "c"  # Check/Call
             nextHistory.consecutive_non_passive_actions = 0
             if history.history_str == "":
-                history.total_pot_size = 2 * history.min_bet_size
+                #preflop limp
+                nextHistory.total_pot_size = 2 * history.min_bet_size
             elif history.history_str[-1] == "c":
-                history.total_pot_size = history.total_pot_size
+                #last action was passive, this is a check
+                nextHistory.total_pot_size = history.total_pot_size
             elif history.history_str[-1] == "b":
-                history.total_pot_size = history.total_pot_size * 1.25
+                #the last action was a 1/3 pot bet, we call the 1/3 -> 3/3 -> 4/3 -> 5/3
+                nextHistory.total_pot_size = history.total_pot_size * 1.25
             elif history.history_str[-1] == "r":
-                history.total_pot_size = history.total_pot_size * 1.5
+                #pot sized raise, 1 -> 2 > 3
+                nextHistory.total_pot_size = history.total_pot_size * 1.5
             elif history.history_str[-1] == "a":
-                history.total_pot_size = 2 * history.starting_stack
+                #jam
+                nextHistory.total_pot_size = 2 * history.starting_stack
             #passive action ends this round of betting
             if (nextHistory.curr_round_plays > 1):
                 nextHistory.game_stage += 1
@@ -216,6 +228,7 @@ def cfr(all_community, player_cards, shown_community, history, p0, p1):
             nextHistory.total_pot_size *= 2
         #jam
         elif a == 4:
+            continue
             nextHistory.consecutive_non_passive_actions += 1
             if nextHistory.consecutive_non_passive_actions >= 3:
                 continue
@@ -224,6 +237,7 @@ def cfr(all_community, player_cards, shown_community, history, p0, p1):
             nextHistory.history_str += "a"
             nextHistory.total_pot_size = history.starting_stack + nextHistory.total_pot_size / 2
         #recursive next step
+        nextHistory.total_pot_size = min(nextHistory.total_pot_size, 2 * nextHistory.starting_stack)
         util[a] = (
             -cfr(
                 all_community,
@@ -245,6 +259,7 @@ def cfr(all_community, player_cards, shown_community, history, p0, p1):
         )
         nodeUtil += strategy[a] * util[a]
 
+
     # For each action, compute and accumulate counterfactual regret
     for a in range(NUM_ACTIONS):
         regret = util[a] - nodeUtil
@@ -263,13 +278,12 @@ def train(iterations, save=True):
         player_cards = [hero_cards, villain_cards]
         shown_community = None
         history = History()
-        for j in tqdm(range(5)):
-          util += cfr(community, player_cards, shown_community, history, 1, 1)
-          if i % 1 == 0:
-              print("Average game value: ", util / i)
-              averageUtils.append(util / i)
+        util += cfr(community, player_cards, shown_community, history, 1, 1)
+        if i % 1 == 0:
+            #print("Average game value: ", util / i)
+            averageUtils.append(util / i)
 
-        if save and i % 100 == 0:
+        if save and (i+1) % iterations == 0:
             joblib.dump(nodeMap, "HoldemNodeMap.joblib")
             joblib.dump(all_history, "HoldemTrainingHistory.joblib")
             joblib.dump(averageUtils, "averageUtils.joblib")
@@ -317,7 +331,7 @@ if __name__ == "__main__":
         assert startIterations > 0
 
     if not visualize:
-        train(5, save)
+        train(100, save)
 
     nodeMap = joblib.load("HoldemNodeMap.joblib")  # Load information sets
     print("Total Number of Infosets:", len(nodeMap))
